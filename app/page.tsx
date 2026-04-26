@@ -1,65 +1,144 @@
-import Image from "next/image";
+import { db } from "@/lib/db";
+import { mowerSnapshots } from "@/lib/db/schema";
+import { desc } from "drizzle-orm";
 
-export default function Home() {
+async function getLatestSnapshots() {
+  // One row per mower_id — the most recent snapshot
+  return db
+    .selectDistinctOn([mowerSnapshots.mowerId], {
+      mowerId: mowerSnapshots.mowerId,
+      mowerName: mowerSnapshots.mowerName,
+      state: mowerSnapshots.state,
+      activity: mowerSnapshots.activity,
+      batteryPercent: mowerSnapshots.batteryPercent,
+      latitude: mowerSnapshots.latitude,
+      longitude: mowerSnapshots.longitude,
+      errorCode: mowerSnapshots.errorCode,
+      polledAt: mowerSnapshots.polledAt,
+    })
+    .from(mowerSnapshots)
+    .orderBy(mowerSnapshots.mowerId, desc(mowerSnapshots.polledAt));
+}
+
+const ACTIVITY_LABEL: Record<string, string> = {
+  MOWING: "Klipper",
+  GOING_HOME: "På vei hjem",
+  CHARGING: "Lader",
+  PARKED_IN_CS: "Parkert",
+  STOPPED_IN_GARDEN: "Stoppet i hagen",
+  NOT_APPLICABLE: "—",
+};
+
+const ACTIVITY_COLOR: Record<string, string> = {
+  MOWING: "bg-green-500",
+  GOING_HOME: "bg-orange-400",
+  CHARGING: "bg-blue-500",
+  PARKED_IN_CS: "bg-blue-300",
+  STOPPED_IN_GARDEN: "bg-yellow-400",
+  NOT_APPLICABLE: "bg-gray-400",
+};
+
+export default async function HomePage() {
+  let snapshots: Awaited<ReturnType<typeof getLatestSnapshots>> = [];
+  let dbError = false;
+
+  try {
+    snapshots = await getLatestSnapshots();
+  } catch {
+    dbError = true;
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="min-h-screen bg-gray-950 text-gray-100 p-8">
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Klipper</h1>
+            <p className="text-gray-400 text-sm mt-1">Husqvarna Automower 415X — overvåking</p>
+          </div>
+          <div className="flex gap-2">
+            <a href="/map" className="rounded-lg bg-gray-800 hover:bg-gray-700 px-4 py-2 text-sm font-medium text-gray-100 transition-colors">Kart →</a>
+            <a href="/maintenance" className="rounded-lg bg-gray-800 hover:bg-gray-700 px-4 py-2 text-sm font-medium text-gray-100 transition-colors">Vedlikehold →</a>
+            <a href="/dashboard" className="rounded-lg bg-gray-800 hover:bg-gray-700 px-4 py-2 text-sm font-medium text-gray-100 transition-colors">Dashboard →</a>
+            <a href="/sessions" className="rounded-lg bg-gray-800 hover:bg-gray-700 px-4 py-2 text-sm font-medium text-gray-100 transition-colors">Sesjoner →</a>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+
+        {dbError && (
+          <div className="rounded-lg border border-red-800 bg-red-950 p-4 text-sm text-red-300">
+            Kunne ikke koble til databasen. Sjekk at <code>DATABASE_URL</code> er satt i{" "}
+            <code>.env.local</code>.
+          </div>
+        )}
+
+        {!dbError && snapshots.length === 0 && (
+          <div className="rounded-lg border border-gray-700 bg-gray-900 p-6 text-sm text-gray-400">
+            <p className="font-medium text-gray-200 mb-2">Ingen data ennå</p>
+            <p>Kjør første poll for å hente status fra Husqvarna API:</p>
+            <pre className="mt-3 rounded bg-gray-800 p-3 text-xs overflow-x-auto">
+              {`curl -H "x-poll-secret: <POLL_SECRET>" http://localhost:3000/api/poll-mower`}
+            </pre>
+          </div>
+        )}
+
+        {snapshots.map((s) => {
+          const activityColor = ACTIVITY_COLOR[s.activity] ?? "bg-gray-400";
+          const activityLabel = ACTIVITY_LABEL[s.activity] ?? s.activity;
+          const polledAt = s.polledAt
+            ? new Date(s.polledAt).toLocaleString("nb-NO")
+            : "—";
+
+          return (
+            <div
+              key={s.mowerId}
+              className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold">{s.mowerName ?? s.mowerId}</h2>
+                  <p className="text-xs text-gray-500 font-mono mt-0.5">{s.mowerId}</p>
+                </div>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium text-white ${activityColor}`}
+                >
+                  {activityLabel}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <Stat label="Tilstand" value={s.state ?? "—"} />
+                <Stat
+                  label="Batteri"
+                  value={s.batteryPercent != null ? `${s.batteryPercent}%` : "—"}
+                />
+                <Stat
+                  label="Posisjon"
+                  value={
+                    s.latitude != null && s.longitude != null
+                      ? `${s.latitude.toFixed(6)}, ${s.longitude.toFixed(6)}`
+                      : "Ukjent"
+                  }
+                />
+                <Stat
+                  label="Feilkode"
+                  value={s.errorCode ? String(s.errorCode) : "Ingen"}
+                />
+              </div>
+
+              <p className="text-xs text-gray-600">Sist oppdatert: {polledAt}</p>
+            </div>
+          );
+        })}
+      </div>
+    </main>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-gray-800 px-3 py-2">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="font-medium text-gray-100 mt-0.5">{value}</p>
     </div>
   );
 }

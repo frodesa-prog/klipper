@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
+import "./env"; // Validate env vars at build time
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  basePath: "/klipper",
 };
 
 export default nextConfig;
