@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import MonthlyChart from "@/components/MonthlyChart";
 import ErrorFrequencyChart from "@/components/ErrorFrequencyChart";
 
