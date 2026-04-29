@@ -4,7 +4,6 @@ import { db } from "@/lib/db";
 import { mowerSnapshots } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import { env } from "@/env";
 import SessionsChart from "@/components/SessionsChart";
 import SessionItem from "@/components/SessionItem";
 
@@ -154,8 +153,6 @@ export default async function SessionsPage() {
   const totalSessions = sessions.length;
   const totalMinutesAll = sessions.reduce((sum, s) => sum + Math.round((s.duration_seconds ?? 0) / 60), 0);
 
-  const mapTilerKey = env.NEXT_PUBLIC_MAPTILER_API_KEY;
-
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100 p-8">
       <div className="max-w-3xl mx-auto space-y-8">
@@ -195,7 +192,6 @@ export default async function SessionsPage() {
                 session={s}
                 ongoing={i === 0 && isCurrentlyMowing}
                 duration={formatDuration(s.duration_seconds ?? 0)}
-                mapTilerKey={mapTilerKey}
               />
             ))}
           </div>

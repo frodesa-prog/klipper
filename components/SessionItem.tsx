@@ -19,12 +19,12 @@ interface Props {
   session: SessionRow;
   ongoing: boolean;
   duration: string;
-  mapTilerKey: string;
 }
 
-export default function SessionItem({ session: s, ongoing, duration, mapTilerKey }: Props) {
+export default function SessionItem({ session: s, ongoing, duration }: Props) {
   const [expanded, setExpanded] = useState(false);
 
+  const mapTilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? "";
   const startDate = new Date(s.started_at);
   const hasMap = s.min_lat != null && s.min_lng != null && s.max_lat != null && s.max_lng != null;
 
