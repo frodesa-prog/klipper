@@ -4,15 +4,21 @@ import { db } from "@/lib/db";
 import { mowerSnapshots } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
+import { env } from "@/env";
 import SessionsChart from "@/components/SessionsChart";
+import SessionItem from "@/components/SessionItem";
 
-interface SessionRow {
+export interface SessionRow {
   started_at: string;
   ended_at: string;
   snapshot_count: number;
   duration_seconds: number;
   zone_name: string | null;
   zone_type: string | null;
+  min_lat: number | null;
+  max_lat: number | null;
+  min_lng: number | null;
+  max_lng: number | null;
 }
 
 interface WeeklySummary {
@@ -39,14 +45,13 @@ function getISOWeekLabel(date: Date): string {
 }
 
 export default async function SessionsPage() {
-  // Gaps-and-islands session detection + PostGIS zone lookup via LATERAL join.
-  // We pick the first non-null GPS position in each session and check which of
-  // the user-drawn zones (stored as jsonb GeoJSON coordinates) it falls inside.
   const result = await db.execute(sql`
     WITH mowing_rows AS (
       SELECT
         polled_at,
         position,
+        latitude,
+        longitude,
         LAG(polled_at) OVER (ORDER BY polled_at) AS prev_polled_at
       FROM mower_snapshots
       WHERE activity = 'MOWING'
@@ -55,6 +60,8 @@ export default async function SessionsPage() {
       SELECT
         polled_at,
         position,
+        latitude,
+        longitude,
         CASE
           WHEN prev_polled_at IS NULL
             OR EXTRACT(EPOCH FROM (polled_at - prev_polled_at)) > 600
@@ -66,6 +73,8 @@ export default async function SessionsPage() {
       SELECT
         polled_at,
         position,
+        latitude,
+        longitude,
         SUM(is_session_start) OVER (ORDER BY polled_at) AS session_id
       FROM with_session_start
     ),
@@ -77,7 +86,11 @@ export default async function SessionsPage() {
         COUNT(*)::int                                                 AS snapshot_count,
         EXTRACT(EPOCH FROM (MAX(polled_at) - MIN(polled_at)))::int    AS duration_seconds,
         (ARRAY_AGG(position ORDER BY polled_at)
-          FILTER (WHERE position IS NOT NULL))[1]                     AS sample_pos
+          FILTER (WHERE position IS NOT NULL))[1]                     AS sample_pos,
+        MIN(latitude)                                                 AS min_lat,
+        MAX(latitude)                                                 AS max_lat,
+        MIN(longitude)                                                AS min_lng,
+        MAX(longitude)                                                AS max_lng
       FROM with_session_id
       GROUP BY session_id
     )
@@ -86,6 +99,10 @@ export default async function SessionsPage() {
       s.ended_at,
       s.snapshot_count,
       s.duration_seconds,
+      s.min_lat,
+      s.max_lat,
+      s.min_lng,
+      s.max_lng,
       z.name  AS zone_name,
       z.type  AS zone_type
     FROM sessions s
@@ -137,6 +154,8 @@ export default async function SessionsPage() {
   const totalSessions = sessions.length;
   const totalMinutesAll = sessions.reduce((sum, s) => sum + Math.round((s.duration_seconds ?? 0) / 60), 0);
 
+  const mapTilerKey = env.NEXT_PUBLIC_MAPTILER_API_KEY;
+
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100 p-8">
       <div className="max-w-3xl mx-auto space-y-8">
@@ -170,60 +189,15 @@ export default async function SessionsPage() {
           )}
 
           <div className="rounded-xl border border-gray-800 overflow-hidden divide-y divide-gray-800">
-            {sessions.map((s, i) => {
-              const startDate = new Date(s.started_at);
-              const ongoing = i === 0 && isCurrentlyMowing;
-              const duration = s.duration_seconds ?? 0;
-
-              return (
-                <div
-                  key={i}
-                  className="flex items-center justify-between px-5 py-3 bg-gray-900 hover:bg-gray-800 transition-colors"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-100">
-                      {startDate.toLocaleDateString("nb-NO", {
-                        weekday: "short",
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Start:{" "}
-                      {startDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {/* Zone badge */}
-                    {s.zone_name && (
-                      <span
-                        className="rounded-full text-xs px-2.5 py-0.5 font-medium"
-                        style={{
-                          backgroundColor: s.zone_type === "exclusion" ? "#7f1d1d" : "#14532d",
-                          color: s.zone_type === "exclusion" ? "#fca5a5" : "#86efac",
-                        }}
-                      >
-                        {s.zone_name}
-                      </span>
-                    )}
-
-                    <span className="text-sm tabular-nums text-gray-300">{formatDuration(duration)}</span>
-
-                    {ongoing ? (
-                      <span className="rounded-full bg-green-900 text-green-300 text-xs px-2.5 py-0.5 font-medium">
-                        Pågår
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-gray-800 border border-gray-700 text-gray-500 text-xs px-2.5 py-0.5">
-                        Fullført
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {sessions.map((s, i) => (
+              <SessionItem
+                key={i}
+                session={s}
+                ongoing={i === 0 && isCurrentlyMowing}
+                duration={formatDuration(s.duration_seconds ?? 0)}
+                mapTilerKey={mapTilerKey}
+              />
+            ))}
           </div>
         </div>
       </div>
