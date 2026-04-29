@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import Map, { Source, Layer, NavigationControl } from "react-map-gl/maplibre";
+import { useState, useEffect } from "react";
+import Map, { Source, Layer, Marker } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { FeatureCollection } from "geojson";
+import { BASE_PATH } from "@/lib/basePath";
 
 interface SessionRow {
   started_at: string;
@@ -28,6 +29,8 @@ const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 export default function SessionItem({ session: s, ongoing, duration }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [trackCoords, setTrackCoords] = useState<[number, number][]>([]);
+  const [trackLoading, setTrackLoading] = useState(false);
 
   const mapTilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? "";
   const startDate = new Date(s.started_at);
@@ -36,33 +39,53 @@ export default function SessionItem({ session: s, ongoing, duration }: Props) {
     s.min_lat != null && s.min_lng != null &&
     s.max_lat != null && s.max_lng != null;
 
-  // Centre of the bounding box
   const centerLng = hasPosition ? (s.min_lng! + s.max_lng!) / 2 : 0;
   const centerLat = hasPosition ? (s.min_lat! + s.max_lat!) / 2 : 0;
 
-  // Bounding box GeoJSON for the zoom-to-bounds rectangle
-  const bboxFC: FeatureCollection = hasPosition
-    ? {
-        type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            properties: {},
-            geometry: {
-              type: "Point",
-              coordinates: [centerLng, centerLat],
-            },
-          },
-        ],
-      }
-    : EMPTY_FC;
-
-  // Link to the live map centred on this session
   const mapLink = hasPosition
     ? `/map?lng=${centerLng.toFixed(6)}&lat=${centerLat.toFixed(6)}&zoom=18`
     : "/map";
 
   const mapStyle = `https://api.maptiler.com/maps/satellite/style.json?key=${mapTilerKey}`;
+
+  // Fetch track when expanded (only once)
+  useEffect(() => {
+    if (!expanded || trackCoords.length > 0) return;
+    setTrackLoading(true);
+    fetch(
+      `${BASE_PATH}/api/sessions/track?from=${encodeURIComponent(s.started_at)}&to=${encodeURIComponent(s.ended_at)}`
+    )
+      .then((r) => r.json())
+      .then((data) => setTrackCoords(data.coordinates ?? []))
+      .catch(() => {})
+      .finally(() => setTrackLoading(false));
+  }, [expanded, s.started_at, s.ended_at, trackCoords.length]);
+
+  const trackGeoJSON: FeatureCollection =
+    trackCoords.length >= 2
+      ? {
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: { type: "LineString", coordinates: trackCoords },
+            },
+          ],
+        }
+      : EMPTY_FC;
+
+  const startCoord = trackCoords[0] ?? null;
+  const endCoord = trackCoords[trackCoords.length - 1] ?? null;
+
+  // Pad bounding box for initial map view
+  const pad = 0.0008;
+  const mapBounds: [[number, number], [number, number]] | undefined = hasPosition
+    ? [
+        [s.min_lng! - pad, s.min_lat! - pad],
+        [s.max_lng! + pad, s.max_lat! + pad],
+      ]
+    : undefined;
 
   return (
     <div className="bg-gray-900">
@@ -117,21 +140,47 @@ export default function SessionItem({ session: s, ongoing, duration }: Props) {
       {expanded && (
         <div className="px-5 pb-4 space-y-2">
           {hasPosition ? (
-            <div className="relative rounded-lg overflow-hidden border border-gray-700" style={{ height: 220 }}>
+            <div className="relative rounded-lg overflow-hidden border border-gray-700" style={{ height: 260 }}>
+              {trackLoading && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/60">
+                  <span className="text-xs text-gray-400">Laster spor…</span>
+                </div>
+              )}
               <Map
-                initialViewState={{ longitude: centerLng, latitude: centerLat, zoom: 17 }}
+                initialViewState={
+                  mapBounds
+                    ? { bounds: mapBounds, fitBoundsOptions: { padding: 24 } }
+                    : { longitude: centerLng, latitude: centerLat, zoom: 17 }
+                }
                 style={{ width: "100%", height: "100%" }}
                 mapStyle={mapStyle}
                 interactive={false}
               >
-                <Source id="centre" type="geojson" data={bboxFC}>
+                {/* GPS track */}
+                <Source id="track" type="geojson" data={trackGeoJSON}>
                   <Layer
-                    id="centre-dot"
-                    type="circle"
-                    paint={{ "circle-radius": 6, "circle-color": "#22c55e", "circle-stroke-width": 2, "circle-stroke-color": "#fff" }}
+                    id="track-line"
+                    type="line"
+                    paint={{ "line-color": "#22c55e", "line-width": 2.5, "line-opacity": 0.95 }}
+                    layout={{ "line-cap": "round", "line-join": "round" }}
                   />
                 </Source>
+
+                {/* Start marker (green) */}
+                {startCoord && (
+                  <Marker longitude={startCoord[0]} latitude={startCoord[1]} anchor="center">
+                    <span className="block w-3 h-3 rounded-full bg-green-400 border-2 border-white shadow" title="Start" />
+                  </Marker>
+                )}
+
+                {/* End marker (red) — only if session is finished */}
+                {endCoord && !ongoing && endCoord !== startCoord && (
+                  <Marker longitude={endCoord[0]} latitude={endCoord[1]} anchor="center">
+                    <span className="block w-3 h-3 rounded-full bg-red-400 border-2 border-white shadow" title="Slutt" />
+                  </Marker>
+                )}
               </Map>
+
               <a
                 href={mapLink}
                 className="absolute bottom-2 right-2 rounded-lg bg-black/70 text-white text-xs px-3 py-1.5 hover:bg-black/90 transition-colors"
