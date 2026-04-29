@@ -79,7 +79,7 @@ export default function SessionItem({ session: s, ongoing, duration }: Props) {
   const endCoord = trackCoords[trackCoords.length - 1] ?? null;
 
   // Pad bounding box for initial map view
-  const pad = 0.0008;
+  const pad = 0.0002;
   const mapBounds: [[number, number], [number, number]] | undefined = hasPosition
     ? [
         [s.min_lng! - pad, s.min_lat! - pad],
@@ -149,7 +149,7 @@ export default function SessionItem({ session: s, ongoing, duration }: Props) {
               <Map
                 initialViewState={
                   mapBounds
-                    ? { bounds: mapBounds, fitBoundsOptions: { padding: 24 } }
+                    ? { bounds: mapBounds, fitBoundsOptions: { padding: 8 } }
                     : { longitude: centerLng, latitude: centerLat, zoom: 17 }
                 }
                 style={{ width: "100%", height: "100%" }}
