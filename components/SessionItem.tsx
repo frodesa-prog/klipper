@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Map, { Source, Layer, NavigationControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
+import type { FeatureCollection } from "geojson";
 
 interface SessionRow {
   started_at: string;
@@ -21,24 +24,45 @@ interface Props {
   duration: string;
 }
 
+const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
+
 export default function SessionItem({ session: s, ongoing, duration }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const mapTilerKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? "";
   const startDate = new Date(s.started_at);
-  const hasMap = s.min_lat != null && s.min_lng != null && s.max_lat != null && s.max_lng != null;
 
-  const mapUrl = hasMap
-    ? (() => {
-        // Add ~80m padding around the bounding box for context
-        const pad = 0.0008;
-        const west  = (s.min_lng! - pad).toFixed(6);
-        const south = (s.min_lat! - pad).toFixed(6);
-        const east  = (s.max_lng! + pad).toFixed(6);
-        const north = (s.max_lat! + pad).toFixed(6);
-        return `https://api.maptiler.com/maps/satellite/static/${west},${south},${east},${north}/640x360.png?key=${mapTilerKey}`;
-      })()
-    : null;
+  const hasPosition =
+    s.min_lat != null && s.min_lng != null &&
+    s.max_lat != null && s.max_lng != null;
+
+  // Centre of the bounding box
+  const centerLng = hasPosition ? (s.min_lng! + s.max_lng!) / 2 : 0;
+  const centerLat = hasPosition ? (s.min_lat! + s.max_lat!) / 2 : 0;
+
+  // Bounding box GeoJSON for the zoom-to-bounds rectangle
+  const bboxFC: FeatureCollection = hasPosition
+    ? {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Point",
+              coordinates: [centerLng, centerLat],
+            },
+          },
+        ],
+      }
+    : EMPTY_FC;
+
+  // Link to the live map centred on this session
+  const mapLink = hasPosition
+    ? `/map?lng=${centerLng.toFixed(6)}&lat=${centerLat.toFixed(6)}&zoom=18`
+    : "/map";
+
+  const mapStyle = `https://api.maptiler.com/maps/satellite/style.json?key=${mapTilerKey}`;
 
   return (
     <div className="bg-gray-900">
@@ -91,21 +115,35 @@ export default function SessionItem({ session: s, ongoing, duration }: Props) {
       </button>
 
       {expanded && (
-        <div className="px-5 pb-4">
-          {mapUrl ? (
-            <div className="overflow-hidden rounded-lg border border-gray-700">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={mapUrl}
-                alt="Kart for sesjonen"
-                className="w-full object-cover"
-                loading="lazy"
-              />
+        <div className="px-5 pb-4 space-y-2">
+          {hasPosition ? (
+            <div className="relative rounded-lg overflow-hidden border border-gray-700" style={{ height: 220 }}>
+              <Map
+                initialViewState={{ longitude: centerLng, latitude: centerLat, zoom: 17 }}
+                style={{ width: "100%", height: "100%" }}
+                mapStyle={mapStyle}
+                interactive={false}
+              >
+                <Source id="centre" type="geojson" data={bboxFC}>
+                  <Layer
+                    id="centre-dot"
+                    type="circle"
+                    paint={{ "circle-radius": 6, "circle-color": "#22c55e", "circle-stroke-width": 2, "circle-stroke-color": "#fff" }}
+                  />
+                </Source>
+              </Map>
+              <a
+                href={mapLink}
+                className="absolute bottom-2 right-2 rounded-lg bg-black/70 text-white text-xs px-3 py-1.5 hover:bg-black/90 transition-colors"
+              >
+                Åpne i kart →
+              </a>
             </div>
           ) : (
             <p className="text-xs text-gray-600 italic">Ingen GPS-data tilgjengelig for denne sesjonen.</p>
           )}
-          <p className="text-xs text-gray-600 mt-2">
+
+          <p className="text-xs text-gray-600">
             {s.snapshot_count} målinger ·{" "}
             {new Date(s.started_at).toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })}
             {" – "}
