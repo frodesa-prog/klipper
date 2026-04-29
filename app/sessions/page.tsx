@@ -47,22 +47,39 @@ export default async function SessionsPage() {
       SELECT
         polled_at,
         position,
-        ROW_NUMBER() OVER (ORDER BY polled_at)
-          - ROW_NUMBER() OVER (PARTITION BY activity ORDER BY polled_at) AS grp
+        LAG(polled_at) OVER (ORDER BY polled_at) AS prev_polled_at
       FROM mower_snapshots
       WHERE activity = 'MOWING'
     ),
+    with_session_start AS (
+      SELECT
+        polled_at,
+        position,
+        CASE
+          WHEN prev_polled_at IS NULL
+            OR EXTRACT(EPOCH FROM (polled_at - prev_polled_at)) > 600
+          THEN 1 ELSE 0
+        END AS is_session_start
+      FROM mowing_rows
+    ),
+    with_session_id AS (
+      SELECT
+        polled_at,
+        position,
+        SUM(is_session_start) OVER (ORDER BY polled_at) AS session_id
+      FROM with_session_start
+    ),
     sessions AS (
       SELECT
-        grp,
+        session_id,
         MIN(polled_at)                                                AS started_at,
         MAX(polled_at)                                                AS ended_at,
         COUNT(*)::int                                                 AS snapshot_count,
         EXTRACT(EPOCH FROM (MAX(polled_at) - MIN(polled_at)))::int    AS duration_seconds,
         (ARRAY_AGG(position ORDER BY polled_at)
           FILTER (WHERE position IS NOT NULL))[1]                     AS sample_pos
-      FROM mowing_rows
-      GROUP BY grp
+      FROM with_session_id
+      GROUP BY session_id
     )
     SELECT
       s.started_at,
