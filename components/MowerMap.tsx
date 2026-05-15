@@ -92,7 +92,7 @@ export default function MowerMap({ mapTilerKey, initialLng, initialLat, initialZ
 
   useEffect(() => {
     fetchPosition();
-    const id = setInterval(fetchPosition, 30_000);
+    const id = setInterval(fetchPosition, 120_000);
     return () => clearInterval(id);
   }, [fetchPosition]);
 
